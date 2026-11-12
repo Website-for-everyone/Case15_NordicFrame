@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+
+<script>
+(function() {
+  const MOCK_DB = {"/api/catalog": {"status": "ok", "bases": [{"id": 1, "name": "Studio 35", "slug": "studio_35", "area_sqm": 35, "bedrooms": 1, "bathrooms": 1, "base_price_rub": 2450000, "dimensions": "7.0 x 5.0 м", "description": "Компактный энергоэффективный дом-студия для круглогодичного отдыха с панорамным фасадом."}, {"id": 2, "name": "Family 65", "slug": "family_65", "area_sqm": 65, "bedrooms": 2, "bathrooms": 1, "base_price_rub": 4200000, "dimensions": "10.0 x 6.5 м", "description": "Оптимальный загородный дом для семьи с двумя изолированными спальнями и просторной кухней-гостиной."}, {"id": 3, "name": "Villa 110", "slug": "villa_110", "area_sqm": 110, "bedrooms": 3, "bathrooms": 2, "base_price_rub": 6900000, "dimensions": "13.5 x 8.2 м", "description": "Флагманская скандинавская вилла с мастер-спальней, вторым светом, гардеробной и двумя санузлами."}], "addons": [{"id": 6, "name": "Скандинавский водяной теплый пол", "slug": "floor_heating", "category": "climate", "price_rub": 180000, "area_sqm": 0, "description": "Низкотемпературная система напольного отопления с позонными термостатами Danfoss."}, {"id": 4, "name": "Архитектурная подсветка и умный дом", "slug": "smart_light", "category": "engineering", "price_rub": 240000, "area_sqm": 0, "description": "Скрытые LED-профили теплого спектра 2700K и сценарии освещения через Apple HomeKit / Zigbee."}, {"id": 3, "name": "Панорамное остекление в пол Reynaers", "slug": "glazing", "category": "facade", "price_rub": 390000, "area_sqm": 0, "description": "Теплый алюминиевый профиль Reynaers MasterLine 8 с энергоэффективными двухкамерными стеклопакетами."}, {"id": 1, "name": "Панорамная терраса из лиственницы", "slug": "terrace", "category": "exterior", "price_rub": 480000, "area_sqm": 25, "description": "Открытая терраса из сибирской лиственницы высшего сорта Вельвет с матовым защитным маслом."}, {"id": 5, "name": "Солнечная электростанция с АКБ", "slug": "solar", "category": "eco", "price_rub": 620000, "area_sqm": 0, "description": "Монокристаллические панели 5 кВт на кровле + литий-железо-фосфатный аккумуляторный блок 10 кВт*ч."}, {"id": 2, "name": "Финская сауна из канадского кедра", "slug": "sauna", "category": "spa", "price_rub": 750000, "area_sqm": 15, "description": "Встроенный банный модуль с электрокаменкой Harvia Cilindro и панорамным закаленным стеклом."}]}};
+  const STORAGE_KEY = "idrisov_demo_" + "Case15_NordicFrame";
+  let localState = {};
+  try { localState = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch(e) {}
+  function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(localState)); } catch(e) {} }
+
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    const urlStr = typeof input === "string" ? input : (input && input.url) || "";
+    if (!urlStr.includes("/api/")) {
+      return origFetch(input, init);
+    }
+
+    const method = ((init && init.method) || "GET").toUpperCase();
+    let body = {};
+    if (init && init.body && typeof init.body === "string") {
+      try { body = JSON.parse(init.body); } catch(e) {}
+    }
+
+    const pathOnly = urlStr.split("?")[0];
+    const urlPath = pathOnly.startsWith("http") ? new URL(pathOnly).pathname : pathOnly;
+
+    // 1. Exact GET match from extracted FastAPI TestClient data
+    if (method === "GET") {
+      if (MOCK_DB[urlStr]) return jsonResp(MOCK_DB[urlStr]);
+      if (MOCK_DB[urlPath]) return jsonResp(MOCK_DB[urlPath]);
+      for (const k of Object.keys(MOCK_DB)) {
+        if (k.split("?")[0] === urlPath) return jsonResp(MOCK_DB[k]);
+      }
+      if (urlPath.includes("/api/dataset/") && !MOCK_DB[urlPath]) {
+        const fallbackKey = Object.keys(MOCK_DB).find(k => k.startsWith("/api/dataset/"));
+        if (fallbackKey) return jsonResp(MOCK_DB[fallbackKey]);
+      }
+    }
+
+    // 2. Dynamic Calculators & Interactive Endpoints
+    if (urlPath.endsWith("/calculate")) {
+      const base = Number(body.base_price || body.area || body.days || 1) * 1500 || 4500;
+      const total = Math.max(2500, Math.round(base + (Number(body.weight_kg || 5) * 200)));
+      return jsonResp({
+        status: "ok",
+        total_price: total,
+        price_rub: total,
+        estimated_price: total,
+        duration_minutes: 90,
+        breakdown: { base: Math.round(total * 0.7), extras: Math.round(total * 0.3) },
+        currency: "RUB"
+      });
+    }
+
+    if (urlPath.includes("/estimate")) {
+      return jsonResp({
+        status: "ok",
+        total_rub: 3850000,
+        timeline_weeks: 8,
+        summary: "Смета сформирована (Static Demo Mode)",
+        estimate_id: "EST-" + Math.floor(1000 + Math.random() * 9000)
+      });
+    }
+
+    if (urlPath.includes("/query") || urlPath.includes("/historian/ask")) {
+      const q = body.question || body.query || body.prompt || "Анализ данных";
+      return jsonResp({
+        status: "ok",
+        answer: "Аналитический ответ (Demo AI): по запросу «" + q + "» выявлена устойчивая корреляция (r = 0.78, p < 0.01). Медианные значения находятся в пределах целевого диапазона без критических выбросов.",
+        metrics: [
+          { label: "Медиана", value: "42.8" },
+          { label: "Std Dev", value: "6.14" },
+          { label: "Выбросы", value: "2.1%" }
+        ]
+      });
+    }
+
+    if (urlPath.includes("/quiz/recommend")) {
+      return jsonResp({
+        status: "ok",
+        recommendation: {
+          name: "Ethiopia Yirgacheffe Kochere",
+          origin: "Ethiopia",
+          roast: "Light Filter",
+          notes: ["Бергамот", "Жасмин", "Персик"],
+          match_percent: 96
+        }
+      });
+    }
+
+    if (urlPath.includes("/verify-passcode")) {
+      return jsonResp({ status: "success", unlocked: true, valid: true, message: "VIP ACCESS GRANTED" });
+    }
+
+    if (urlPath.includes("/track-order")) {
+      return jsonResp({
+        status: "success",
+        order_id: urlPath.split("/").pop() || "CR-2026",
+        stage: "Регулировка хода и тест герметичности (Этап 4/5)",
+        master: "Виктор К.",
+        eta: "2 дня"
+      });
+    }
+
+    if (urlPath.includes("/tasks")) {
+      localState.tasks = localState.tasks || (MOCK_DB["/api/tasks"] && MOCK_DB["/api/tasks"].tasks) || [];
+      if (method === "POST" && urlPath.endsWith("/tasks")) {
+        const t = { id: Date.now(), title: body.title || "Новая задача", duration_hours: Number(body.duration_hours || 1), quadrant: body.quadrant || "urgent_important", is_completed: false };
+        localState.tasks.push(t);
+        saveState();
+        return jsonResp({ status: "ok", task: t, tasks: localState.tasks });
+      }
+      if (urlPath.includes("/toggle")) {
+        const id = Number(urlPath.split("/")[3]);
+        localState.tasks = localState.tasks.map(t => t.id === id ? { ...t, is_completed: !t.is_completed } : t);
+        saveState();
+        return jsonResp({ status: "ok", tasks: localState.tasks });
+      }
+      if (method === "DELETE") {
+        const id = Number(urlPath.split("/").pop());
+        localState.tasks = localState.tasks.filter(t => t.id !== id);
+        saveState();
+        return jsonResp({ status: "ok", tasks: localState.tasks });
+      }
+      return jsonResp({ tasks: localState.tasks });
+    }
+
+    if (urlPath === "/api/state") {
+      return jsonResp(MOCK_DB["/api/state"] || {
+        title: "LIVE RAP & TECH BATTLE // FINAL",
+        round: 3,
+        status: "VOTING_OPEN",
+        fighters: [
+          { id: "mc_a", name: "MC NEON", votes: 142, color: "#00f0ff" },
+          { id: "mc_b", name: "BYTE_KILLER", votes: 138, color: "#ff007f" }
+        ]
+      });
+    }
+
+    if (urlPath === "/api/vote") {
+      return jsonResp({ status: "ok", message: "Голос учтен!", voted: true });
+    }
+
+    // Default POST confirmation (bookings, orders, quotes, appraisals, seat reservations)
+    const refId = "ID-" + Math.floor(10000 + Math.random() * 90000);
+    return jsonResp({
+      status: "ok",
+      success: true,
+      id: refId,
+      booking_id: refId,
+      cert_id: refId,
+      voucher: "VIP-" + refId,
+      order_id: refId,
+      message: "Заявка #" + refId + " успешно оформлена и синхронизирована с Telegram-ботом @Idrisov_prod!"
+    });
+  };
+
+  function jsonResp(data) {
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+})();
+</script>
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nordic Frame | Scandinavian Modular Architecture Bureau</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --chalk-white: #F8F9FA;
+      --ash-wood: #E9E2D8;
+      --pine-green: #2C423B;
+      --pine-dark: #1F302A;
+      --charcoal: #1F2421;
+      --border-line: #D5DDD7;
+      --text-muted: #6B7570;
+      --accent-warm: #CFA468;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--chalk-white);
+      color: var(--charcoal);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      min-height: 100vh;
+      background-image: 
+        linear-gradient(to right, rgba(44, 66, 59, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(44, 66, 59, 0.04) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    /* Header */
+    header {
+      padding: 1.25rem 3rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(248, 249, 250, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-line);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--pine-green);
+      text-transform: uppercase;
+    }
+
+    .brand-subtitle {
+      font-size: 0.75rem;
+      letter-spacing: 2.5px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .btn {
+      padding: 0.7rem 1.6rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+      text-decoration: none;
+    }
+
+    .btn-pine {
+      background: var(--pine-green);
+      color: #fff;
+    }
+
+    .btn-pine:hover {
+      background: var(--pine-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(44, 66, 59, 0.25);
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--pine-green);
+      color: var(--pine-green);
+    }
+
+    .btn-outline:hover {
+      background: var(--pine-green);
+      color: #fff;
+    }
+
+    /* Main Studio Container */
+    .studio-container {
+      max-width: 1400px;
+      margin: 2rem auto 4rem;
+      padding: 0 2rem;
+      display: grid;
+      grid-template-columns: 460px 1fr;
+      gap: 2rem;
+    }
+
+    @media (max-width: 1024px) {
+      .studio-container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Left Configurator Column */
+    .config-panel {
+      background: #fff;
+      border: 1px solid var(--border-line);
+      border-radius: 12px;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.8rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.03);
+    }
+
+    .section-label {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--pine-green);
+      font-weight: 700;
+      margin-bottom: 0.8rem;
+    }
+
+    /* Base House Radio Cards */
+    .bases-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .base-card {
+      border: 1px solid var(--border-line);
+      border-radius: 8px;
+      padding: 1.1rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: var(--chalk-white);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .base-card:hover, .base-card.active {
+      border-color: var(--pine-green);
+      background: #fff;
+      box-shadow: 0 4px 15px rgba(44, 66, 59, 0.08);
+    }
+
+    .base-card-name {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--charcoal);
+    }
+
+    .base-card-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+
+    .base-card-price {
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--pine-green);
+    }
+
+    /* Add-on Checkboxes */
+    .addons-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .addon-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--border-line);
+      border-radius: 6px;
+      padding: 0.8rem 1rem;
+      background: #fff;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .addon-item:hover, .addon-item.selected {
+      border-color: var(--pine-green);
+      background: rgba(44, 66, 59, 0.03);
+    }
+
+    .addon-info {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .addon-name {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--charcoal);
+    }
+
+    .addon-price {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--pine-green);
+    }
+
+    /* Right Blueprint & BOM Column */
+    .blueprint-column {
+      display: flex;
+      flex-direction: column;
+      gap: 1.8rem;
+    }
+
+    .blueprint-panel {
+      background: #fff;
+      border: 1px solid var(--border-line);
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.03);
+    }
+
+    .blueprint-canvas-wrap {
+      background: #F4F6F4;
+      border: 1px solid var(--border-line);
+      border-radius: 8px;
+      padding: 1.5rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 340px;
+    }
+
+    /* Bill of Materials (BOM) Table */
+    .bom-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: 0.85rem;
+    }
+
+    .bom-table th, .bom-table td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border-line);
+      text-align: left;
+    }
+
+    .bom-table th {
+      font-family: 'Space Grotesk', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      background: var(--chalk-white);
+    }
+
+    .bom-table tr.total-row td {
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: var(--pine-green);
+      border-bottom: none;
+      padding-top: 1.2rem;
+    }
+
+    /* Action Bar */
+    .action-bar {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(31, 36, 33, 0.7);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 1rem;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-box {
+      background: #fff;
+      border-radius: 12px;
+      max-width: 500px;
+      width: 100%;
+      padding: 2.2rem;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.15);
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+      font-weight: 600;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid var(--border-line);
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.95rem;
+    }
+
+    .form-group input:focus {
+      border-color: var(--pine-green);
+      outline: none;
+      box-shadow: 0 0 10px rgba(44, 66, 59, 0.2);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-title">NORDIC FRAME</div>
+      <div class="brand-subtitle">Modular Architectural Bureau &bull; Helsinki / St. Petersburg / Moscow</div>
+    </div>
+    <div style="display: flex; gap: 0.75rem;">
+      <button class="btn btn-outline" onclick="downloadEstimatePdf()">📥 Скачать PDF-смету</button>
+      <button class="btn btn-pine" onclick="openEstimateModal()">⚡ Получить расчет</button>
+    </div>
+  </header>
+
+  <!-- Studio Workspace -->
+  <main class="studio-container">
+
+    <!-- Configurator Column -->
+    <aside class="config-panel">
+      <!-- 1. Base Model -->
+      <div>
+        <div class="section-label">1. Выбор базового модуля</div>
+        <div class="bases-stack" id="basesStack">
+          <!-- Populated via JS -->
+        </div>
+      </div>
+
+      <!-- 2. Add-on Modules -->
+      <div>
+        <div class="section-label">2. Дополнительные опции & Модули</div>
+        <div class="addons-grid" id="addonsGrid">
+          <!-- Populated via JS -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- Blueprint & BOM Column -->
+    <section class="blueprint-column">
+      <!-- Architectural SVG Blueprint Floorplan -->
+      <div class="blueprint-panel">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
+          <div>
+            <h3 style="font-family: 'Space Grotesk', sans-serif; font-size: 1.3rem; color: var(--pine-green);">
+              Архитектурный чертеж планировки
+            </h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Векторная схема расположения модулей на участке в масштабе 1:100</p>
+          </div>
+          <div style="font-family: 'Space Grotesk'; font-weight: 700; color: var(--pine-green); font-size: 1.1rem;" id="blueprintAreaLabel">
+            35 м²
+          </div>
+        </div>
+
+        <div class="blueprint-canvas-wrap">
+          <svg viewBox="0 0 500 300" width="500" height="300" id="blueprintSvg">
+            <!-- Grid lines -->
+            <defs>
+              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#E1E6E2" stroke-width="0.5" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+
+            <!-- Dynamic House Core -->
+            <rect id="svgHouseCore" x="120" y="70" width="220" height="150" fill="#FFF" stroke="#2C423B" stroke-width="3" rx="2" />
+            <text id="svgHouseTitle" x="230" y="145" font-family="'Space Grotesk'" font-size="14" font-weight="700" fill="#2C423B" text-anchor="middle">STUDIO 35 m²</text>
+            <text id="svgHouseDims" x="230" y="165" font-family="'Plus Jakarta Sans'" font-size="10" fill="#6B7570" text-anchor="middle">Living Room + Kitchenette + Bath</text>
+
+            <!-- Dynamic Terrace (Optional) -->
+            <g id="svgTerraceGroup" style="display: none;">
+              <rect x="340" y="70" width="90" height="150" fill="#F4EFEA" stroke="#CFA468" stroke-width="2" stroke-dasharray="4 2" />
+              <text x="385" y="145" font-family="'Space Grotesk'" font-size="11" font-weight="700" fill="#CFA468" text-anchor="middle">TERRACE</text>
+              <text x="385" y="162" font-family="'Plus Jakarta Sans'" font-size="9" fill="#997A48" text-anchor="middle">+25 m²</text>
+            </g>
+
+            <!-- Dynamic Sauna (Optional) -->
+            <g id="svgSaunaGroup" style="display: none;">
+              <rect x="50" y="70" width="70" height="90" fill="#EAE5DE" stroke="#2C423B" stroke-width="2" />
+              <text x="85" y="115" font-family="'Space Grotesk'" font-size="10" font-weight="700" fill="#2C423B" text-anchor="middle">SAUNA</text>
+              <text x="85" y="130" font-family="'Plus Jakarta Sans'" font-size="8" fill="#6B7570" text-anchor="middle">+15 m²</text>
+            </g>
+
+            <!-- Panoramic Glazing indicator -->
+            <g id="svgGlazingLine" style="display: none;">
+              <line x1="130" y1="220" x2="330" y2="220" stroke="#00A8FF" stroke-width="5" stroke-linecap="round" />
+              <text x="230" y="235" font-family="'Space Grotesk'" font-size="8" fill="#00A8FF" text-anchor="middle">PANORAMIC GLASS REYNAERS</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Bill of Materials (BOM) & Investment Breakdown -->
+      <div class="blueprint-panel">
+        <h3 style="font-family: 'Space Grotesk', sans-serif; font-size: 1.3rem; color: var(--pine-green); margin-bottom: 0.5rem;">
+          Смета проекта под ключ
+        </h3>
+        <table class="bom-table">
+          <thead>
+            <tr>
+              <th>Статья сметы</th>
+              <th>Доля</th>
+              <th style="text-align: right;">Сумма</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Каркас CLT, утепление Rockwool & Конструктив</td>
+              <td>45%</td>
+              <td style="text-align: right;" id="bomMaterials">1 102 500 ₽</td>
+            </tr>
+            <tr>
+              <td>Панорамное остекление & Входные группы</td>
+              <td>15%</td>
+              <td style="text-align: right;" id="bomGlazing">367 500 ₽</td>
+            </tr>
+            <tr>
+              <td>Инженерные сети, электрика, отопление & вентиляция</td>
+              <td>20%</td>
+              <td style="text-align: right;" id="bomEngineering">490 000 ₽</td>
+            </tr>
+            <tr>
+              <td>Заводская сборка модулей, логистика & монтаж на участке</td>
+              <td>20%</td>
+              <td style="text-align: right;" id="bomAssembly">490 000 ₽</td>
+            </tr>
+            <tr class="total-row">
+              <td>ИТОГО ПОД КЛЮЧ:</td>
+              <td>100%</td>
+              <td style="text-align: right;" id="bomTotal">2 450 000 ₽</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="action-bar">
+          <button class="btn btn-outline" style="flex: 1;" onclick="downloadEstimatePdf()">📥 Экспорт сметы в PDF</button>
+          <button class="btn btn-pine" style="flex: 1.5;" onclick="openEstimateModal()">Зафиксировать расчет</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Estimate Modal -->
+  <div class="modal-overlay" id="estimateModal">
+    <div class="modal-box">
+      <h3 style="font-family: 'Space Grotesk'; font-size: 1.4rem; color: var(--pine-green); margin-bottom: 0.8rem;">
+        Фиксация сметы проекта
+      </h3>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">
+        Закрепим стоимость и спецификацию на 30 дней с выездом главного архитектора бюро.
+      </p>
+      <form id="estimateForm">
+        <div class="form-group">
+          <label>Ваше Имя</label>
+          <input type="text" id="clientName" required placeholder="Александр">
+        </div>
+        <div class="form-group">
+          <label>Контактный телефон / Telegram</label>
+          <input type="text" id="clientPhone" required placeholder="+7 999 123-45-67">
+        </div>
+        <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-outline" onclick="closeEstimateModal()" style="flex: 1;">Отмена</button>
+          <button type="submit" class="btn btn-pine" style="flex: 1.5;">Отправить проект</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let bases = [];
+    let addons = [];
+    let selectedBaseSlug = "studio_35";
+    let selectedAddonSlugs = new Set();
+
+    window.addEventListener("DOMContentLoaded", () => {
+      fetchCatalog();
+      document.getElementById("estimateForm").addEventListener("submit", handleEstimateSubmit);
+    });
+
+    async function fetchCatalog() {
+      try {
+        const res = await fetch("/api/catalog");
+        const data = await res.json();
+        bases = data.bases;
+        addons = data.addons;
+        renderBases(bases);
+        renderAddons(addons);
+        recalculateConfig();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderBases(list) {
+      const stack = document.getElementById("basesStack");
+      stack.innerHTML = list.map(b => `
+        <div class="base-card ${b.slug === selectedBaseSlug ? 'active' : ''}" onclick="selectBase('${b.slug}')">
+          <div>
+            <div class="base-card-name">${b.name} (${b.area_sqm} м²)</div>
+            <div class="base-card-meta">${b.bedrooms} спальни &bull; ${b.bathrooms} с/у &bull; ${b.dimensions}</div>
+          </div>
+          <div class="base-card-price">${b.base_price_rub.toLocaleString()} ₽</div>
+        </div>
+      `).join("");
+    }
+
+    function selectBase(slug) {
+      selectedBaseSlug = slug;
+      renderBases(bases);
+      recalculateConfig();
+    }
+
+    function renderAddons(list) {
+      const grid = document.getElementById("addonsGrid");
+      grid.innerHTML = list.map(a => `
+        <div class="addon-item ${selectedAddonSlugs.has(a.slug) ? 'selected' : ''}" onclick="toggleAddon('${a.slug}')">
+          <div class="addon-info">
+            <input type="checkbox" ${selectedAddonSlugs.has(a.slug) ? 'checked' : ''} style="accent-color: var(--pine-green);">
+            <div class="addon-name">${a.name}</div>
+          </div>
+          <div class="addon-price">+${a.price_rub.toLocaleString()} ₽</div>
+        </div>
+      `).join("");
+    }
+
+    function toggleAddon(slug) {
+      if (selectedAddonSlugs.has(slug)) {
+        selectedAddonSlugs.delete(slug);
+      } else {
+        selectedAddonSlugs.add(slug);
+      }
+      renderAddons(addons);
+      recalculateConfig();
+    }
+
+    async function recalculateConfig() {
+      try {
+        const res = await fetch("/api/calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            base_slug: selectedBaseSlug,
+            addon_slugs: Array.from(selectedAddonSlugs)
+          })
+        });
+
+        const data = await res.json();
+        const conf = data.config;
+
+        // Update Blueprint SVG Visuals
+        document.getElementById("blueprintAreaLabel").textContent = `${conf.total_area_sqm} м²`;
+        document.getElementById("svgHouseTitle").textContent = `${conf.base.name.toUpperCase()} ${conf.base.area_sqm} m²`;
+
+        // SVG Module Visibility
+        document.getElementById("svgTerraceGroup").style.display = selectedAddonSlugs.has("terrace") ? "block" : "none";
+        document.getElementById("svgSaunaGroup").style.display = selectedAddonSlugs.has("sauna") ? "block" : "none";
+        document.getElementById("svgGlazingLine").style.display = selectedAddonSlugs.has("glazing") ? "block" : "none";
+
+        // Update BOM Table
+        document.getElementById("bomMaterials").textContent = `${conf.bom.materials_rub.toLocaleString()} ₽`;
+        document.getElementById("bomGlazing").textContent = `${conf.bom.glazing_rub.toLocaleString()} ₽`;
+        document.getElementById("bomEngineering").textContent = `${conf.bom.engineering_rub.toLocaleString()} ₽`;
+        document.getElementById("bomAssembly").textContent = `${conf.bom.assembly_rub.toLocaleString()} ₽`;
+        document.getElementById("bomTotal").textContent = `${conf.total_price_rub.toLocaleString()} ₽`;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function downloadEstimatePdf() {
+      try {
+        const res = await fetch("/api/estimate/pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_name: "Заказчик",
+            phone: "+7 (999) 000-00-00",
+            base_slug: selectedBaseSlug,
+            addon_slugs: Array.from(selectedAddonSlugs)
+          })
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `NordicFrame_Estimate_${selectedBaseSlug}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } else {
+          alert("Ошибка при генерации PDF");
+        }
+      } catch (err) {
+        alert("Ошибка сети при скачивании PDF");
+      }
+    }
+
+    function openEstimateModal() {
+      document.getElementById("estimateModal").classList.add("active");
+    }
+
+    function closeEstimateModal() {
+      document.getElementById("estimateModal").classList.remove("active");
+    }
+
+    async function handleEstimateSubmit(e) {
+      e.preventDefault();
+      const name = document.getElementById("clientName").value;
+      const phone = document.getElementById("clientPhone").value;
+
+      try {
+        const res = await fetch("/api/estimate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_name: name,
+            phone: phone,
+            base_slug: selectedBaseSlug,
+            addon_slugs: Array.from(selectedAddonSlugs)
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          alert(`🏡 ${data.message}\nНомер коммерческого предложения: ${data.estimate_number}\nИтоговая смета: ${data.config.total_price_rub.toLocaleString()} ₽`);
+          closeEstimateModal();
+        } else {
+          alert(`Ошибка: ${data.detail}`);
+        }
+      } catch (err) {
+        alert("Ошибка отправки сметы");
+      }
+    }
+  </script>
+</body>
+</html>
